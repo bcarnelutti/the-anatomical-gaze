@@ -35,12 +35,12 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     camera.position.set(0, 0, controlsRef.current.zoom);
     cameraRef.current = camera;
 
-    // 3. High-Fidelity WebGL Renderer with Tone Mapping & Specular Highlights
+    // 3. High-Fidelity WebGL Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.4;
+    renderer.toneMappingExposure = 1.45;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     rendererRef.current = renderer;
@@ -76,12 +76,30 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     pinsGroupRef.current = pinsGroup;
     eyeGroup.add(pinsGroup);
 
-    // Texture Loader with Base URL support
+    // Texture Loader with explicit sRGB and material updates
     const textureLoader = new THREE.TextureLoader();
     const baseUrl = import.meta.env.BASE_URL || '/';
-    const irisTexture = textureLoader.load(`${baseUrl}iris_texture.jpg`);
-    const retinaTexture = textureLoader.load(`${baseUrl}retina_texture.jpg`);
-    const scleraTexture = textureLoader.load(`${baseUrl}sclera_texture.jpg`);
+
+    const irisTexture = textureLoader.load(`${baseUrl}iris_texture.jpg?v=2`, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
+    });
+    irisTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const retinaTexture = textureLoader.load(`${baseUrl}retina_texture.jpg?v=2`, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
+    });
+    retinaTexture.colorSpace = THREE.SRGBColorSpace;
+
+    const scleraTexture = textureLoader.load(`${baseUrl}sclera_texture.jpg?v=2`, (t) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = THREE.RepeatWrapping;
+      t.wrapT = THREE.RepeatWrapping;
+      t.repeat.set(2, 1);
+      t.needsUpdate = true;
+    });
+    scleraTexture.colorSpace = THREE.SRGBColorSpace;
     scleraTexture.wrapS = THREE.RepeatWrapping;
     scleraTexture.wrapT = THREE.RepeatWrapping;
     scleraTexture.repeat.set(2, 1);
