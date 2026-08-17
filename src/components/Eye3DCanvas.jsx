@@ -10,8 +10,8 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
   const controlsRef = useRef({
     isDragging: false,
     previousMousePosition: { x: 0, y: 0 },
-    rotation: { x: 0.25, y: -0.85 },
-    targetRotation: { x: 0.25, y: -0.85 },
+    rotation: { x: 0.15, y: -0.9 },
+    targetRotation: { x: 0.15, y: -0.9 },
     zoom: 6.2,
     targetZoom: 6.2
   });
@@ -30,8 +30,8 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
 
     // 2. Camera Setup
     const width = container.clientWidth;
-    const height = container.clientHeight || 550;
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
+    const height = container.clientHeight || 560;
+    const camera = new THREE.PerspectiveCamera(42, width / height, 0.1, 100);
     camera.position.set(0, 0, controlsRef.current.zoom);
     cameraRef.current = camera;
 
@@ -40,30 +40,31 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.3;
+    renderer.toneMappingExposure = 1.35;
+    renderer.localClippingEnabled = true;
     rendererRef.current = renderer;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 4. Studio Lighting
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.4);
+    // 4. Studio Clinical Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfff7ed, 2.5);
-    keyLight.position.set(6, 8, 8);
+    const keyLight = new THREE.DirectionalLight(0xfffaf0, 2.8);
+    keyLight.position.set(7, 9, 8);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0x7dd3fc, 1.6);
-    fillLight.position.set(-6, -4, -6);
+    const fillLight = new THREE.DirectionalLight(0x7dd3fc, 1.8);
+    fillLight.position.set(-7, -5, -6);
     scene.add(fillLight);
 
-    const rimLight = new THREE.PointLight(0xd4af37, 2.8, 25);
-    rimLight.position.set(0, 6, -5);
+    const rimLight = new THREE.PointLight(0xd4af37, 3.2, 30);
+    rimLight.position.set(0, 7, -6);
     scene.add(rimLight);
 
-    const interiorLight = new THREE.PointLight(0xfef08a, 1.5, 8);
-    interiorLight.position.set(0, 0, 0);
-    scene.add(interiorLight);
+    const fundusGlow = new THREE.PointLight(0xfb923c, 2.2, 8);
+    fundusGlow.position.set(0, 0, 0);
+    scene.add(fundusGlow);
 
     // 5. Build Eye Model Group
     const eyeGroup = new THREE.Group();
@@ -118,7 +119,7 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
 
       controlsRef.current.targetRotation.y += deltaX * 0.008;
       controlsRef.current.targetRotation.x += deltaY * 0.008;
-      controlsRef.current.targetRotation.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, controlsRef.current.targetRotation.x));
+      controlsRef.current.targetRotation.x = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, controlsRef.current.targetRotation.x));
 
       prevX = e.clientX;
       prevY = e.clientY;
@@ -207,7 +208,7 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     const resizeObserver = new ResizeObserver((entries) => {
       for (let entry of entries) {
         const w = entry.contentRect.width;
-        const h = entry.contentRect.height || 550;
+        const h = entry.contentRect.height || 560;
         if (w > 0 && h > 0) {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
@@ -223,7 +224,6 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     const animate = () => {
       const elapsedTime = clock.getElapsedTime();
 
-      // Smooth camera interpolation
       controlsRef.current.rotation.x += (controlsRef.current.targetRotation.x - controlsRef.current.rotation.x) * 0.1;
       controlsRef.current.rotation.y += (controlsRef.current.targetRotation.y - controlsRef.current.rotation.y) * 0.1;
       controlsRef.current.zoom += (controlsRef.current.targetZoom - controlsRef.current.zoom) * 0.1;
@@ -237,7 +237,7 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
         pinsGroupRef.current.children.forEach((pinGroup) => {
           const outerRing = pinGroup.children[1];
           if (outerRing) {
-            const scale = 1.0 + 0.25 * Math.sin(elapsedTime * 4.0 + pinGroup.position.x);
+            const scale = 1.0 + 0.28 * Math.sin(elapsedTime * 4.0 + pinGroup.position.x);
             outerRing.scale.set(scale, scale, scale);
           }
         });
@@ -271,7 +271,7 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     }
   }, [activeStructureId, activeLayerFilter]);
 
-  // Camera focus animation when structure is selected
+  // Smooth camera alignment when structure selected
   useEffect(() => {
     if (!activeStructureId) return;
     const structure = anatomicalStructures.find(s => s.id === activeStructureId);
@@ -280,14 +280,14 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
       const targetY = -Math.atan2(px, pz);
       const targetX = Math.atan2(py, Math.sqrt(px * px + pz * pz));
       controlsRef.current.targetRotation.y = targetY;
-      controlsRef.current.targetRotation.x = targetX * 0.75;
+      controlsRef.current.targetRotation.x = targetX * 0.7;
       controlsRef.current.targetZoom = 5.2;
     }
   }, [activeStructureId]);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '520px' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: '520px', borderRadius: '12px', overflow: 'hidden' }} />
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '560px' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: '560px', borderRadius: '12px', overflow: 'hidden' }} />
       
       {/* 3D Viewport Controls HUD */}
       <div style={{
@@ -295,20 +295,20 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
         bottom: '1rem',
         left: '1rem',
         display: 'flex',
-        gap: '0.5rem',
-        background: 'rgba(10, 10, 12, 0.8)',
-        backdropFilter: 'blur(10px)',
-        padding: '0.4rem 0.8rem',
+        gap: '0.6rem',
+        background: 'rgba(10, 10, 12, 0.85)',
+        backdropFilter: 'blur(12px)',
+        padding: '0.45rem 0.9rem',
         borderRadius: '8px',
         border: '1px solid var(--border-glass)',
-        fontSize: '0.8rem',
+        fontSize: '0.82rem',
         color: 'var(--text-secondary)'
       }}>
-        <span>🖱️ Drag to rotate 360°</span>
+        <span>🖱️ 360° Rotate</span>
         <span>•</span>
-        <span>🔍 Scroll to zoom</span>
+        <span>🔍 Scroll to Zoom</span>
         <span>•</span>
-        <span>🎯 Click pins to dissect</span>
+        <span>🎯 Click 3D Pins</span>
       </div>
 
       {/* Hovered Pin Tooltip */}
@@ -324,7 +324,7 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
           borderRadius: '8px',
           color: '#fff',
           fontSize: '0.9rem',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
           pointerEvents: 'none',
           zIndex: 30
         }}>
@@ -340,34 +340,160 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
       {/* Camera Reset */}
       <button
         onClick={() => {
-          controlsRef.current.targetRotation = { x: 0.25, y: -0.85 };
+          controlsRef.current.targetRotation = { x: 0.15, y: -0.9 };
           controlsRef.current.targetZoom = 6.2;
         }}
         style={{
           position: 'absolute',
           top: '1rem',
           right: '1rem',
-          background: 'rgba(20, 21, 26, 0.8)',
+          background: 'rgba(20, 21, 26, 0.85)',
           border: '1px solid var(--border-glass)',
           color: 'var(--text-primary)',
-          padding: '0.4rem 0.8rem',
+          padding: '0.45rem 0.9rem',
           borderRadius: '6px',
           cursor: 'pointer',
-          fontSize: '0.8rem',
+          fontSize: '0.82rem',
           backdropFilter: 'blur(8px)',
           transition: 'all 0.2s',
           zIndex: 30
         }}
         title="Reset 3D Camera View"
       >
-        ↺ Reset View
+        ↺ Reset 3D View
       </button>
     </div>
   );
 }
 
 // -------------------------------------------------------------
-// Accurate Procedural Three.js Eye Anatomy Construction
+// Procedural Medical Canvas Textures
+// -------------------------------------------------------------
+function createIrisTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  // Amber/brown hazel gradient base
+  const grad = ctx.createRadialGradient(256, 256, 60, 256, 256, 256);
+  grad.addColorStop(0, '#1c1917');
+  grad.addColorStop(0.2, '#78350f');
+  grad.addColorStop(0.6, '#b45309');
+  grad.addColorStop(0.9, '#d97706');
+  grad.addColorStop(1, '#451a03');
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Radial striations (trabeculae)
+  ctx.strokeStyle = 'rgba(254, 240, 138, 0.35)';
+  ctx.lineWidth = 1.5;
+  for (let i = 0; i < 180; i++) {
+    const angle = (i * Math.PI) / 90;
+    const r1 = 80 + Math.random() * 20;
+    const r2 = 240 + Math.random() * 16;
+    ctx.beginPath();
+    ctx.moveTo(256 + Math.cos(angle) * r1, 256 + Math.sin(angle) * r1);
+    ctx.lineTo(256 + Math.cos(angle) * r2, 256 + Math.sin(angle) * r2);
+    ctx.stroke();
+  }
+
+  // Central dark pupil circle
+  ctx.fillStyle = '#050505';
+  ctx.beginPath();
+  ctx.arc(256, 256, 75, 0, Math.PI * 2);
+  ctx.fill();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+}
+
+function createRetinaTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+
+  // Warm orange/amber fundus background (like clinical ophthalmic view)
+  const bgGrad = ctx.createLinearGradient(0, 0, 1024, 512);
+  bgGrad.addColorStop(0, '#ea580c');
+  bgGrad.addColorStop(0.4, '#c2410c');
+  bgGrad.addColorStop(0.8, '#9a3412');
+  bgGrad.addColorStop(1, '#7c2d12');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, 1024, 512);
+
+  // Optic Disc (pale yellow circle at x=380, y=260)
+  const discX = 380;
+  const discY = 260;
+  ctx.fillStyle = '#fef08a';
+  ctx.beginPath();
+  ctx.arc(discX, discY, 32, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#ca8a04';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // Macula & Fovea Centralis (dark red ring with golden yellow center at x=600, y=260)
+  const maculaX = 600;
+  const maculaY = 260;
+  const maculaGrad = ctx.createRadialGradient(maculaX, maculaY, 8, maculaX, maculaY, 45);
+  maculaGrad.addColorStop(0, '#f59e0b');
+  maculaGrad.addColorStop(0.4, '#7c2d12');
+  maculaGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = maculaGrad;
+  ctx.beginPath();
+  ctx.arc(maculaX, maculaY, 45, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Central retinal vessels branching outward from Optic Disc (Arteries & Veins)
+  const drawVesselTree = (startX, startY, isVein) => {
+    ctx.strokeStyle = isVein ? 'rgba(37, 99, 235, 0.85)' : 'rgba(220, 38, 38, 0.9)';
+    ctx.lineWidth = isVein ? 3.5 : 2.5;
+    ctx.lineCap = 'round';
+
+    // Superior Arcade
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.bezierCurveTo(startX + 40, startY - 80, startX + 160, startY - 140, startX + 280, startY - 120);
+    ctx.stroke();
+
+    // Superior branches
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(startX + 100, startY - 100);
+    ctx.lineTo(startX + 160, startY - 180);
+    ctx.moveTo(startX + 180, startY - 130);
+    ctx.lineTo(startX + 240, startY - 200);
+    ctx.stroke();
+
+    // Inferior Arcade
+    ctx.lineWidth = isVein ? 3.5 : 2.5;
+    ctx.beginPath();
+    ctx.moveTo(startX, startY);
+    ctx.bezierCurveTo(startX + 40, startY + 80, startX + 160, startY + 140, startX + 280, startY + 120);
+    ctx.stroke();
+
+    // Inferior branches
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(startX + 100, startY + 100);
+    ctx.lineTo(startX + 160, startY + 180);
+    ctx.moveTo(startX + 180, startY + 130);
+    ctx.lineTo(startX + 240, startY + 200);
+    ctx.stroke();
+  };
+
+  drawVesselTree(discX, discY, true);  // Vein
+  drawVesselTree(discX + 4, discY - 2, false); // Artery
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+}
+
+// -------------------------------------------------------------
+// Accurate 3D Anatomical Anatomy Construction
 // -------------------------------------------------------------
 function buildEyeAnatomy(group, viewMode, layerFilter) {
   while (group.children.length > 1) {
@@ -375,7 +501,7 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
   }
 
   const isCutaway = viewMode === 'crossSection';
-  const phiLength = isCutaway ? Math.PI * 1.32 : Math.PI * 2; // Precise 120-degree cutaway opening
+  const phiLength = isCutaway ? Math.PI * 1.34 : Math.PI * 2;
 
   const showFibrosa = layerFilter === 'all' || layerFilter === 'fibrosa';
   const showVasculosa = layerFilter === 'all' || layerFilter === 'vasculosa';
@@ -383,12 +509,12 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
   const showOptical = layerFilter === 'all' || layerFilter === 'optical';
   const showNeural = layerFilter === 'all' || layerFilter === 'neural';
 
-  // 1. SCLERA (Outer Fibrous Shell - R=2.0)
+  // 1. SCLERA (Outer White Shell - R=2.0)
   if (showFibrosa) {
     const scleraGeo = new THREE.SphereGeometry(2.0, 56, 56, 0, phiLength, 0.42, Math.PI - 0.42);
     const scleraMat = new THREE.MeshStandardMaterial({
       color: 0xf8fafc,
-      roughness: 0.3,
+      roughness: 0.32,
       metalness: 0.05,
       side: isCutaway ? THREE.DoubleSide : THREE.FrontSide
     });
@@ -396,35 +522,35 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
     scleraMesh.rotation.y = Math.PI / 2;
     group.add(scleraMesh);
 
-    // Extraocular Rectus Muscle Bands (Superior & Inferior)
-    const muscleGeo = new THREE.BoxGeometry(0.3, 0.08, 1.6);
-    const muscleMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.6 });
+    // Extraocular Rectus Muscles (Superior & Inferior Muscle Bands)
+    const muscleGeo = new THREE.BoxGeometry(0.32, 0.08, 1.8);
+    const muscleMat = new THREE.MeshStandardMaterial({ color: 0x991b1b, roughness: 0.55 });
     
     const supMuscle = new THREE.Mesh(muscleGeo, muscleMat);
-    supMuscle.position.set(0, 2.02, -0.4);
+    supMuscle.position.set(0, 2.02, -0.45);
     supMuscle.rotation.x = -0.2;
     group.add(supMuscle);
 
     const infMuscle = new THREE.Mesh(muscleGeo, muscleMat);
-    infMuscle.position.set(0, -2.02, -0.4);
+    infMuscle.position.set(0, -2.02, -0.45);
     infMuscle.rotation.x = 0.2;
     group.add(infMuscle);
 
-    // 2. CORNEA (Steep Curvature Anterior Dome - R=1.25, offset forward creating anterior chamber)
-    const corneaGeo = new THREE.SphereGeometry(1.25, 48, 48, 0, Math.PI * 2, 0, Math.PI / 2.1);
+    // 2. CORNEA (Steep Curvature Anterior Dome - R=1.24, offset forward creating anterior chamber)
+    const corneaGeo = new THREE.SphereGeometry(1.24, 48, 48, 0, Math.PI * 2, 0, Math.PI / 2.05);
     const corneaMat = new THREE.MeshPhysicalMaterial({
       color: 0xbae6fd,
       transparent: true,
-      opacity: 0.4,
-      roughness: 0.02,
+      opacity: 0.45,
+      roughness: 0.03,
       metalness: 0.08,
-      transmission: 0.9,
+      transmission: 0.92,
       ior: 1.376,
       side: THREE.DoubleSide
     });
     const corneaMesh = new THREE.Mesh(corneaGeo, corneaMat);
-    corneaMesh.position.set(0, 0, 1.42);
-    corneaMesh.scale.set(1.0, 1.0, 0.72);
+    corneaMesh.position.set(0, 0, 1.44);
+    corneaMesh.scale.set(1.0, 1.0, 0.74);
     group.add(corneaMesh);
   }
 
@@ -441,11 +567,12 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
     choroidMesh.rotation.y = Math.PI / 2;
     group.add(choroidMesh);
 
-    // 4. IRIS & PUPIL APERTURE
-    const irisGeo = new THREE.RingGeometry(0.48, 1.22, 48);
+    // 4. IRIS & PUPIL WITH PROCEDURAL TRABECULAR TEXTURE
+    const irisGeo = new THREE.RingGeometry(0.46, 1.22, 48);
+    const irisTexture = createIrisTexture();
     const irisMat = new THREE.MeshStandardMaterial({
-      color: 0xb45309,
-      roughness: 0.35,
+      map: irisTexture,
+      roughness: 0.4,
       side: THREE.DoubleSide
     });
     const irisMesh = new THREE.Mesh(irisGeo, irisMat);
@@ -460,11 +587,12 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
     group.add(ciliaryMesh);
   }
 
-  // 5. RETINA (Inner Neurosensory Layer - R=1.85 with Ora Serrata)
+  // 5. RETINA (Inner Neurosensory Layer with Fundus Texture & Vessels - R=1.85)
   if (showNervosa) {
-    const retinaGeo = new THREE.SphereGeometry(1.85, 48, 48, 0, phiLength, 0.58, Math.PI - 0.58);
+    const retinaGeo = new THREE.SphereGeometry(1.85, 56, 56, 0, phiLength, 0.58, Math.PI - 0.58);
+    const retinaTexture = createRetinaTexture();
     const retinaMat = new THREE.MeshStandardMaterial({
-      color: 0xf43f5e, // Neurosensory salmon rose
+      map: retinaTexture,
       roughness: 0.45,
       metalness: 0.05,
       side: THREE.DoubleSide
@@ -473,15 +601,15 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
     retinaMesh.rotation.y = Math.PI / 2;
     group.add(retinaMesh);
 
-    // Macula & Fovea Centralis (Yellow Pigment Spot)
-    const foveaGeo = new THREE.CircleGeometry(0.24, 32);
+    // 3D Macula / Fovea Landmark
+    const foveaGeo = new THREE.CircleGeometry(0.22, 32);
     const foveaMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b, side: THREE.DoubleSide });
     const foveaMesh = new THREE.Mesh(foveaGeo, foveaMat);
     foveaMesh.position.set(0, 0, -1.84);
     group.add(foveaMesh);
 
-    // Optic Disc (Mariotte's Scotoma)
-    const discGeo = new THREE.CircleGeometry(0.26, 32);
+    // 3D Optic Disc (Blind Spot)
+    const discGeo = new THREE.CircleGeometry(0.25, 32);
     const discMat = new THREE.MeshBasicMaterial({ color: 0xfef08a, side: THREE.DoubleSide });
     const discMesh = new THREE.Mesh(discGeo, discMat);
     discMesh.position.set(0.78, 0.22, -1.77);
@@ -496,8 +624,8 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
     const lensMat = new THREE.MeshPhysicalMaterial({
       color: 0xe0f2fe,
       transparent: true,
-      opacity: 0.85,
-      roughness: 0.06,
+      opacity: 0.88,
+      roughness: 0.05,
       transmission: 0.92,
       ior: 1.406
     });
@@ -512,19 +640,19 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
       color: 0xfef9c3,
       wireframe: true,
       transparent: true,
-      opacity: 0.4
+      opacity: 0.45
     });
     const zonuleMesh = new THREE.Mesh(zonuleGeo, zonuleMat);
     zonuleMesh.position.set(0, 0, 1.24);
     group.add(zonuleMesh);
 
-    // Vitreous Body Gel Core (Posterior Cavity)
+    // Vitreous Body Gel Core (Posterior Cavity with warm amber-cyan gradient)
     if (isCutaway || layerFilter === 'optical') {
       const vitGeo = new THREE.SphereGeometry(1.8, 36, 36, 0, phiLength);
       const vitMat = new THREE.MeshPhysicalMaterial({
-        color: 0x38bdf8,
+        color: 0xfbbf24,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.2,
         roughness: 0.1,
         transmission: 0.95
       });
@@ -536,7 +664,6 @@ function buildEyeAnatomy(group, viewMode, layerFilter) {
 
   // 7. OPTIC NERVE (CN II) & CENTRAL RETINAL VESSELS
   if (showNeural || showFibrosa) {
-    // Dural Nerve Sheath
     const nerveGeo = new THREE.CylinderGeometry(0.42, 0.46, 2.0, 32);
     const nerveMat = new THREE.MeshStandardMaterial({
       color: 0xfef08a,
