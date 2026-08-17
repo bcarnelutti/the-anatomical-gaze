@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import Eye3DCanvas from './Eye3DCanvas';
-import MedicalDiagramView from './MedicalDiagramView';
 import AtlasInspector from './AtlasInspector';
 import { anatomicalStructures, ocularLayers } from '../data/medicalAtlasData';
 
 export default function DissectedEye() {
   const [activeStructureId, setActiveStructureId] = useState('cornea');
-  const [displayMode, setDisplayMode] = useState('3d'); // '3d' | 'diagram'
   const [view3DMode, setView3DMode] = useState('crossSection'); // 'crossSection' | 'composite'
   const [activeLayerFilter, setActiveLayerFilter] = useState('all');
 
@@ -19,7 +17,7 @@ export default function DissectedEye() {
   return (
     <div className="section-container" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       
-      {/* Section Header & View Switchers */}
+      {/* Section Header & 3D Controls */}
       <div className="glass-panel" style={{ padding: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
@@ -30,69 +28,41 @@ export default function DissectedEye() {
               The Dissected Eye: 3D Anatomical Atlas
             </h2>
             <p style={{ maxWidth: '850px', fontSize: '1.05rem', color: 'var(--text-secondary)', marginTop: '0.5rem', lineHeight: '1.6' }}>
-              Fully interactive 3D WebGL model modeled after clinical ophthalmic cross-sections (Exeter Eye, AAO, NIH Webvision). Rotate in 360°, inspect internal layers in sagittal cutaway dissection, and explore the convergence of medical anatomy and Dante/Heaney poetics.
+              Interactive 3D WebGL model modeled after clinical ophthalmic anatomy (LASIK, AAO, NIH Webvision). Rotate in 360°, inspect internal structures in sagittal cutaway dissection, and explore the convergence of medical ocular anatomy and Dante/Heaney poetics.
             </p>
           </div>
 
-          {/* Primary View Switcher (3D WebGL vs Clinical 2D Diagram) */}
+          {/* 3D Anatomy Mode Switcher */}
           <div style={{
             display: 'flex',
             background: 'rgba(0,0,0,0.5)',
             padding: '0.4rem',
             borderRadius: '10px',
-            border: '1px solid var(--accent-gold)',
+            border: '1px solid var(--border-glass)',
             gap: '0.4rem'
           }}>
             <button
-              onClick={() => setDisplayMode('3d')}
-              style={primaryToggleBtnStyle(displayMode === '3d')}
-              title="Interactive 3D WebGL anatomical model"
-            >
-              🌐 3D Interactive Model
-            </button>
-            <button
-              onClick={() => setDisplayMode('diagram')}
-              style={primaryToggleBtnStyle(displayMode === 'diagram')}
-              title="Clinical sagittal cross-section illustration"
-            >
-              📋 Clinical 2D Diagram
-            </button>
-          </div>
-        </div>
-
-        {/* 3D Secondary Dissection Controls */}
-        {displayMode === '3d' && (
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.8rem',
-            marginTop: '1.25rem',
-            paddingTop: '1rem',
-            borderTop: '1px dashed var(--border-glass)'
-          }}>
-            <span style={{ fontSize: '0.82rem', color: 'var(--accent-gold)' }}>
-              3D Anatomy Mode:
-            </span>
-            <button
               onClick={() => setView3DMode('crossSection')}
-              style={subModeBtnStyle(view3DMode === 'crossSection')}
+              style={modeBtnStyle(view3DMode === 'crossSection')}
+              title="Sagittal cross-section revealing internal anatomy"
             >
               🔪 Sagittal Dissection (Cutaway)
             </button>
             <button
               onClick={() => setView3DMode('composite')}
-              style={subModeBtnStyle(view3DMode === 'composite')}
+              style={modeBtnStyle(view3DMode === 'composite')}
+              title="Full intact spherical globe"
             >
               👁️ Intact 3D Globe
             </button>
           </div>
-        )}
+        </div>
 
         {/* Anatomical Layer Filter Tabs */}
         <div style={{
           display: 'flex',
           gap: '0.5rem',
-          marginTop: '1.25rem',
+          marginTop: '1.5rem',
           flexWrap: 'wrap',
           borderTop: '1px solid var(--border-glass)',
           paddingTop: '1.25rem'
@@ -151,13 +121,13 @@ export default function DissectedEye() {
         gap: '1.5rem',
         alignItems: 'stretch'
       }}>
-        {/* Left Pane: Visual Engine (3D WebGL or Clinical Diagram) */}
+        {/* Left Pane: 3D Three.js Canvas */}
         <div className="glass-panel" style={{
           position: 'relative',
           padding: '1rem',
           display: 'flex',
           flexDirection: 'column',
-          minHeight: '560px',
+          minHeight: '600px',
           border: '1px solid var(--border-glass)'
         }}>
           <div style={{
@@ -178,33 +148,26 @@ export default function DissectedEye() {
                 boxShadow: '0 0 8px #22c55e'
               }} />
               <span style={{ fontSize: '0.85rem', fontWeight: '600', color: 'var(--text-primary)', letterSpacing: '0.5px' }}>
-                {displayMode === '3d' ? 'Interactive 3D WebGL Model' : 'Clinical Ophthalmic Illustration'}
+                Interactive 3D WebGL Model
               </span>
             </div>
             <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              {displayMode === '3d' ? (view3DMode === 'crossSection' ? 'Sagittal Cutaway Dissection' : 'Intact Globe') : 'Exeter Eye Standard'}
+              Mode: {view3DMode === 'crossSection' ? 'Sagittal Cutaway Dissection' : 'Intact Ocular Globe'}
             </span>
           </div>
 
           <div style={{ flex: 1, position: 'relative', minHeight: '520px' }}>
-            {displayMode === '3d' ? (
-              <Eye3DCanvas
-                activeStructureId={activeStructureId}
-                onSelectStructure={(id) => setActiveStructureId(id)}
-                viewMode={view3DMode}
-                activeLayerFilter={activeLayerFilter}
-              />
-            ) : (
-              <MedicalDiagramView
-                activeStructureId={activeStructureId}
-                onSelectStructure={(id) => setActiveStructureId(id)}
-              />
-            )}
+            <Eye3DCanvas
+              activeStructureId={activeStructureId}
+              onSelectStructure={(id) => setActiveStructureId(id)}
+              viewMode={view3DMode}
+              activeLayerFilter={activeLayerFilter}
+            />
           </div>
         </div>
 
         {/* Right Pane: Comprehensive Medical & Literary Inspector */}
-        <div style={{ minHeight: '560px' }}>
+        <div style={{ minHeight: '600px' }}>
           <AtlasInspector structure={activeStructure} />
         </div>
       </div>
@@ -213,30 +176,17 @@ export default function DissectedEye() {
   );
 }
 
-function primaryToggleBtnStyle(isActive) {
+function modeBtnStyle(isActive) {
   return {
     padding: '0.55rem 1.1rem',
     background: isActive ? 'var(--accent-crimson)' : 'transparent',
     border: 'none',
     borderRadius: '7px',
     color: isActive ? '#fff' : 'var(--text-secondary)',
-    fontSize: '0.88rem',
+    fontSize: '0.85rem',
     fontWeight: isActive ? '600' : '400',
     cursor: 'pointer',
     transition: 'all 0.2s ease'
-  };
-}
-
-function subModeBtnStyle(isActive) {
-  return {
-    padding: '0.35rem 0.75rem',
-    background: isActive ? 'rgba(216, 184, 99, 0.25)' : 'rgba(255, 255, 255, 0.05)',
-    border: `1px solid ${isActive ? 'var(--accent-gold)' : 'var(--border-glass)'}`,
-    borderRadius: '5px',
-    color: isActive ? 'var(--accent-gold)' : 'var(--text-secondary)',
-    fontSize: '0.78rem',
-    fontWeight: isActive ? '600' : '400',
-    cursor: 'pointer'
   };
 }
 
