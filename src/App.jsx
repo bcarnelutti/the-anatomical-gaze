@@ -3,7 +3,6 @@ import './index.css';
 import MedicalEyeTimeline from './components/MedicalEyeTimeline';
 import DissectedEye from './components/DissectedEye';
 import AbjectBody from './components/AbjectBody';
-import PsychoanalyticGaze from './components/PsychoanalyticGaze';
 
 function App() {
   const [activeSection, setActiveSection] = useState('timeline');
@@ -11,8 +10,7 @@ function App() {
   const sections = {
     timeline: <MedicalEyeTimeline />,
     diagram: <DissectedEye />,
-    gallery: <AbjectBody />,
-    psychoanalytic: <PsychoanalyticGaze />
+    gallery: <AbjectBody />
   };
 
   return (
@@ -41,13 +39,6 @@ function App() {
             style={navBtnStyle(activeSection === 'gallery')}
           >
             The Abject Body
-          </button>
-          <button 
-            className={`nav-btn interactive-card ${activeSection === 'psychoanalytic' ? 'active' : ''}`}
-            onClick={() => setActiveSection('psychoanalytic')}
-            style={navBtnStyle(activeSection === 'psychoanalytic')}
-          >
-            Psychoanalytic Gaze
           </button>
         </nav>
       </header>

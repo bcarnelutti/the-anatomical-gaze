@@ -92,7 +92,3 @@ export const galleryData = [
   }
 ];
 
-export const psychoanalyticData = {
-  title: "From Medical Optics to Psychoanalytic Gaze",
-  content: "The intellectual history traces a path from the physics of light to the distortion of desire. The discovery of the retinal blind spot in the 1660s prefigures Lacan's concept: a point in the visual field that cannot be seen, but which fundamentally structures perception. The medical gaze, which once sought objective truth in the dissected corpse, evolves into the psychoanalytic gaze—where the viewing subject realizes they are, in turn, being looked at by the object of their abjection."
-};
