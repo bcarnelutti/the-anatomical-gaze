@@ -1,242 +1,514 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { anatomicalStructures } from '../data/medicalAtlasData';
 
 export default function Eye3DCanvas({ activeStructureId, onSelectStructure, viewMode, activeLayerFilter }) {
   const containerRef = useRef(null);
+  const rendererRef = useRef(null);
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
-  const rendererRef = useRef(null);
-  const controlsRef = useRef({
-    isDragging: false,
-    previousMousePosition: { x: 0, y: 0 },
-    rotation: { x: 0.15, y: -0.92 },
-    targetRotation: { x: 0.15, y: -0.92 },
-    zoom: 6.0,
-    targetZoom: 6.0
-  });
+  const controlsRef = useRef(null);
+  const eyeGroupRef = useRef(null);
   const pinsGroupRef = useRef(null);
-  const eyeModelGroupRef = useRef(null);
+  const partsRef = useRef({});
+  const scalableShellsRef = useRef([]);
+  const cutRingsRef = useRef([]);
+  const cutPlaneRef = useRef(null);
   const requestRef = useRef(null);
+
   const [hoveredPin, setHoveredPin] = useState(null);
+  const [cutValue, setCutValue] = useState(0.0);
+  const [explodeValue, setExplodeValue] = useState(0.0);
+  const [autoRotate, setAutoRotate] = useState(false);
 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    // 1. Scene Setup
-    const scene = new THREE.Scene();
-    sceneRef.current = scene;
-
-    // 2. Camera Setup
+    // 1. WebGL Renderer
     const width = container.clientWidth;
-    const height = container.clientHeight || 580;
-    const camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
-    camera.position.set(0, 0, controlsRef.current.zoom);
-    cameraRef.current = camera;
+    const height = container.clientHeight || 620;
 
-    // 3. High-Fidelity WebGL Renderer
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.45;
+    renderer.setSize(width, height);
+    renderer.localClippingEnabled = true;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.22;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.setClearColor(0x080b0d, 0.0);
     rendererRef.current = renderer;
     container.innerHTML = '';
     container.appendChild(renderer.domElement);
 
-    // 4. Clinical Multi-Point Lighting Rig
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.8);
-    scene.add(ambientLight);
+    // 2. Scene & Fog
+    const scene = new THREE.Scene();
+    sceneRef.current = scene;
 
-    const keyLight = new THREE.DirectionalLight(0xfffbf0, 3.2);
-    keyLight.position.set(8, 10, 9);
+    // 3. Camera
+    const camera = new THREE.PerspectiveCamera(36, width / height, 0.1, 180);
+    camera.position.set(31, 16, 27);
+    cameraRef.current = camera;
+
+    // 4. OrbitControls
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.055;
+    controls.target.set(0, 0, 0);
+    controls.minDistance = 12;
+    controls.maxDistance = 80;
+    controls.autoRotateSpeed = 0.65;
+    controls.autoRotate = autoRotate;
+    controlsRef.current = controls;
+
+    // 5. Environment & Lights
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTexture = pmrem.fromScene(new RoomEnvironment(renderer), 0.03).texture;
+    scene.environment = envTexture;
+
+    const keyLight = new THREE.DirectionalLight(0xfff4e8, 3.0);
+    keyLight.position.set(18, 22, 24);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xa5f3fc, 2.2);
-    fillLight.position.set(-8, -6, -7);
+    const fillLight = new THREE.DirectionalLight(0xc8ddff, 1.5);
+    fillLight.position.set(-18, 6, 9);
     scene.add(fillLight);
 
-    const rimGoldLight = new THREE.PointLight(0xf59e0b, 3.8, 30);
-    rimGoldLight.position.set(0, 8, -6);
-    scene.add(rimGoldLight);
+    const rimLight = new THREE.DirectionalLight(0xffffff, 2.3);
+    rimLight.position.set(2, 16, -28);
+    scene.add(rimLight);
 
-    const fundusInteriorLight = new THREE.PointLight(0xf97316, 2.8, 7);
-    fundusInteriorLight.position.set(0, 0, 0);
-    scene.add(fundusInteriorLight);
+    scene.add(new THREE.HemisphereLight(0xdce8ef, 0x160e0c, 0.7));
 
-    // 5. Eye Model Group & Pins Group
-    const eyeGroup = new THREE.Group();
-    eyeModelGroupRef.current = eyeGroup;
-    scene.add(eyeGroup);
+    // Shadow Floor
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(52, 96),
+      new THREE.ShadowMaterial({ color: 0x000000, transparent: true, opacity: 0.28 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -15.2;
+    floor.receiveShadow = true;
+    scene.add(floor);
 
+    // 6. Eye Group
+    const eye = new THREE.Group();
+    eye.rotation.set(-0.03, 0.12, -0.08);
+    eyeGroupRef.current = eye;
+    scene.add(eye);
+
+    // Pins Group
     const pinsGroup = new THREE.Group();
     pinsGroupRef.current = pinsGroup;
-    eyeGroup.add(pinsGroup);
+    eye.add(pinsGroup);
 
-    // Texture Loader with explicit sRGB and material updates
-    const textureLoader = new THREE.TextureLoader();
-    const baseUrl = import.meta.env.BASE_URL || '/';
+    // 7. Clipping Planes
+    const isCutaway = viewMode === 'crossSection';
+    const initialCutConstant = isCutaway ? cutValue : 25.0;
+    const cutPlane = new THREE.Plane(new THREE.Vector3(1, 0, 0), initialCutConstant);
+    cutPlaneRef.current = cutPlane;
 
-    const irisTexture = textureLoader.load(`${baseUrl}iris_texture.jpg?v=2`, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.needsUpdate = true;
+    const scleraFrontPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 10.25);
+    const choroidFrontPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 8.15);
+    const retinaFrontPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 7.45);
+    const corneaClip = new THREE.Plane(new THREE.Vector3(0, 0, 1), -9.8);
+
+    function physical(opts = {}) {
+      return new THREE.MeshPhysicalMaterial({
+        side: THREE.DoubleSide,
+        roughness: 0.34,
+        metalness: 0,
+        clearcoat: 0.34,
+        clearcoatRoughness: 0.24,
+        envMapIntensity: 1.05,
+        clippingPlanes: [cutPlane],
+        ...opts
+      });
+    }
+
+    function standard(opts = {}) {
+      return new THREE.MeshStandardMaterial({
+        side: THREE.DoubleSide,
+        roughness: 0.5,
+        clippingPlanes: [cutPlane],
+        ...opts
+      });
+    }
+
+    const parts = {};
+    const scalableShells = [];
+
+    function addPart(name, mesh, scalable = false, category = 'all') {
+      mesh.name = name;
+      mesh.userData = { category, partName: name };
+      eye.add(mesh);
+      parts[name] = parts[name] || [];
+      parts[name].push(mesh);
+      if (scalable) scalableShells.push({ mesh, base: mesh.scale.clone(), name });
+      return mesh;
+    }
+
+    // A. SCLERA
+    addPart('Sclera',
+      new THREE.Mesh(new THREE.SphereGeometry(12.0, 160, 120),
+        physical({
+          color: 0xe8e3d9,
+          roughness: 0.48,
+          clearcoat: 0.22,
+          sheen: 0.18,
+          sheenColor: new THREE.Color(0xfff5eb),
+          clippingPlanes: [cutPlane, scleraFrontPlane]
+        })
+      ), true, 'fibrosa');
+
+    // B. CHOROID
+    addPart('Choroid',
+      new THREE.Mesh(new THREE.SphereGeometry(11.64, 150, 110),
+        physical({
+          color: 0x32120e,
+          roughness: 0.52,
+          clearcoat: 0.16,
+          sheen: 0.08,
+          sheenColor: new THREE.Color(0x6e2318),
+          clippingPlanes: [cutPlane, choroidFrontPlane]
+        })
+      ), true, 'vasculosa');
+
+    // C. RETINA
+    addPart('Retina',
+      new THREE.Mesh(new THREE.SphereGeometry(11.36, 150, 110),
+        physical({
+          color: 0x8b3129,
+          roughness: 0.42,
+          clearcoat: 0.24,
+          transmission: 0.02,
+          sheen: 0.22,
+          sheenColor: new THREE.Color(0xd97464),
+          clippingPlanes: [cutPlane, retinaFrontPlane]
+        })
+      ), true, 'nervosa');
+
+    // D. VITREOUS BODY
+    addPart('Vitreous',
+      new THREE.Mesh(new THREE.SphereGeometry(10.95, 120, 90),
+        new THREE.MeshPhysicalMaterial({
+          color: 0xdceff1,
+          transparent: true,
+          opacity: 0.085,
+          transmission: 0.92,
+          thickness: 6.0,
+          ior: 1.336,
+          roughness: 0.08,
+          clearcoat: 0.3,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          clippingPlanes: [cutPlane],
+          envMapIntensity: 0.8
+        })
+      ), false, 'optical');
+
+    // E. CORNEA
+    const corneaMat = new THREE.MeshPhysicalMaterial({
+      color: 0xdaf5fa,
+      transparent: true,
+      opacity: 0.32,
+      transmission: 0.98,
+      ior: 1.376,
+      thickness: 1.0,
+      roughness: 0.04,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.05,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      clippingPlanes: [cutPlane, corneaClip],
+      envMapIntensity: 1.35
     });
-    irisTexture.colorSpace = THREE.SRGBColorSpace;
+    const cornea = new THREE.Mesh(new THREE.SphereGeometry(7.3, 160, 100), corneaMat);
+    cornea.scale.set(1, 1, 1.05);
+    cornea.position.z = 5.3;
+    addPart('Cornea', cornea, false, 'fibrosa');
 
-    const retinaTexture = textureLoader.load(`${baseUrl}retina_texture.jpg?v=2`, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.needsUpdate = true;
-    });
-    retinaTexture.colorSpace = THREE.SRGBColorSpace;
+    // F. ANTERIOR CHAMBER / AQUEOUS HUMOR
+    const aqueous = new THREE.Mesh(new THREE.SphereGeometry(6.0, 100, 70),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xcfe8eb,
+        transparent: true,
+        opacity: 0.09,
+        transmission: 0.96,
+        ior: 1.336,
+        thickness: 2,
+        roughness: 0.04,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        clippingPlanes: [cutPlane]
+      }));
+    aqueous.scale.set(0.9, 0.9, 0.45);
+    aqueous.position.z = 7.85;
+    addPart('Aqueous', aqueous, false, 'optical');
 
-    const scleraTexture = textureLoader.load(`${baseUrl}sclera_texture.jpg?v=2`, (t) => {
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.wrapS = THREE.RepeatWrapping;
-      t.wrapT = THREE.RepeatWrapping;
-      t.repeat.set(2, 1);
-      t.needsUpdate = true;
-    });
-    scleraTexture.colorSpace = THREE.SRGBColorSpace;
-    scleraTexture.wrapS = THREE.RepeatWrapping;
-    scleraTexture.wrapT = THREE.RepeatWrapping;
-    scleraTexture.repeat.set(2, 1);
+    // G. IRIS
+    const irisGeo = new THREE.RingGeometry(2.15, 5.35, 180, 5);
+    const irisMat = physical({ color: 0x493327, roughness: 0.62, clearcoat: 0.18, sheen: 0.08 });
+    const iris = new THREE.Mesh(irisGeo, irisMat);
+    iris.position.z = 8.35;
+    addPart('Iris', iris, false, 'vasculosa');
 
-    // Build Photographic Anatomical 3D Model
-    buildPhotographicEyeAnatomy(eyeGroup, viewMode, activeLayerFilter, { irisTexture, retinaTexture, scleraTexture });
+    // Radial iris fibers
+    const fiberMat = new THREE.LineBasicMaterial({ color: 0x8d725a, transparent: true, opacity: 0.28, clippingPlanes: [cutPlane] });
+    for (let i = 0; i < 110; i++) {
+      const a = (i / 110) * Math.PI * 2 + Math.sin(i * 12.73) * 0.015;
+      const r0 = 2.2 + Math.sin(i * 3.1) * 0.08;
+      const r1 = 5.15 + Math.sin(i * 1.73) * 0.12;
+      const pts = [
+        new THREE.Vector3(Math.cos(a) * r0, Math.sin(a) * r0, 8.31),
+        new THREE.Vector3(Math.cos(a + Math.sin(i) * 0.018) * r1, Math.sin(a + Math.sin(i) * 0.018) * r1, 8.31)
+      ];
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), fiberMat);
+      addPart('Iris', line, false, 'vasculosa');
+    }
+
+    // H. CILIARY BODY
+    const ciliary = new THREE.Mesh(new THREE.TorusGeometry(5.35, 0.8, 28, 160),
+      physical({ color: 0x5d261e, roughness: 0.5, clearcoat: 0.23, sheen: 0.16, sheenColor: new THREE.Color(0x9c4a3b) }));
+    ciliary.position.z = 6.85;
+    addPart('Ciliary Body', ciliary, false, 'vasculosa');
+
+    // Ciliary processes
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.14, 0.72, 5, 10),
+        standard({ color: 0x713226, roughness: 0.56 }));
+      m.position.set(Math.cos(a) * 4.75, Math.sin(a) * 4.75, 6.55);
+      m.rotation.z = a + Math.PI / 2;
+      m.rotation.x = Math.PI / 2;
+      addPart('Ciliary Body', m, false, 'vasculosa');
+    }
+
+    // I. LENS (Layered translucent cortex & nucleus)
+    const lensOuter = new THREE.Mesh(new THREE.SphereGeometry(5.0, 140, 100),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xd9dfcb,
+        transparent: true,
+        opacity: 0.64,
+        transmission: 0.72,
+        ior: 1.406,
+        thickness: 3.5,
+        roughness: 0.12,
+        clearcoat: 0.56,
+        clearcoatRoughness: 0.1,
+        side: THREE.DoubleSide,
+        clippingPlanes: [cutPlane],
+        envMapIntensity: 1.1
+      }));
+    lensOuter.scale.set(0.91, 0.91, 0.41);
+    lensOuter.position.z = 5.0;
+    addPart('Lens', lensOuter, false, 'optical');
+
+    const lensNucleus = new THREE.Mesh(new THREE.SphereGeometry(4.0, 110, 80),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xd6d2ad,
+        transparent: true,
+        opacity: 0.22,
+        transmission: 0.82,
+        ior: 1.41,
+        thickness: 2.5,
+        roughness: 0.17,
+        side: THREE.DoubleSide,
+        clippingPlanes: [cutPlane],
+        depthWrite: false
+      }));
+    lensNucleus.scale.set(0.83, 0.83, 0.36);
+    lensNucleus.position.z = 5.0;
+    addPart('Lens', lensNucleus, false, 'optical');
+
+    // Zonular fibers
+    const zonuleMat = new THREE.LineBasicMaterial({ color: 0xe4d9bd, transparent: true, opacity: 0.32, clippingPlanes: [cutPlane] });
+    for (let i = 0; i < 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      const p1 = new THREE.Vector3(Math.cos(a) * 4.55, Math.sin(a) * 4.55, 5.1);
+      const p2 = new THREE.Vector3(Math.cos(a) * 5.08, Math.sin(a) * 5.08, 6.45);
+      const p3 = new THREE.Vector3(Math.cos(a) * 4.55, Math.sin(a) * 4.55, 4.9);
+      const p4 = new THREE.Vector3(Math.cos(a) * 5.08, Math.sin(a) * 5.08, 6.15);
+      for (const pair of [[p1, p2], [p3, p4]]) {
+        addPart('Lens', new THREE.Line(new THREE.BufferGeometry().setFromPoints(pair), zonuleMat), false, 'optical');
+      }
+    }
+
+    // J. OPTIC NERVE
+    const nerveMat = physical({ color: 0xd3b488, roughness: 0.58, clearcoat: 0.12, sheen: 0.08 });
+    const nerve = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 2.05, 13.2, 64, 4), nerveMat);
+    nerve.rotation.x = Math.PI / 2;
+    nerve.position.set(0, 0, -17.3);
+    addPart('Optic Nerve', nerve, false, 'neural');
+
+    // Central depression / optic disc
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(1.05, 72),
+      physical({ color: 0xe3b08c, roughness: 0.52, clearcoat: 0.18 }));
+    disc.position.set(0, 0, -11.38);
+    disc.rotation.y = Math.PI;
+    addPart('Optic Disc', disc, false, 'neural');
+
+    // K. RETINAL BLOOD VESSELS
+    const vesselRed = physical({ color: 0x731014, roughness: 0.4, clearcoat: 0.38, sheen: 0.12, clippingPlanes: [cutPlane] });
+    const vesselDark = physical({ color: 0x3f1117, roughness: 0.42, clearcoat: 0.3, clippingPlanes: [cutPlane] });
+
+    function retinaPoint(theta, phi, r = 11.30) {
+      return new THREE.Vector3(
+        r * Math.sin(theta) * Math.cos(phi),
+        r * Math.sin(theta) * Math.sin(phi),
+        -r * Math.cos(theta)
+      );
+    }
+
+    function addVessel(points, radius, material) {
+      const curve = new THREE.CatmullRomCurve3(points);
+      const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, Math.max(24, points.length * 10), radius, 7, false), material);
+      addPart('Blood Vessels', tube, false, 'nervosa');
+    }
+
+    const trunkAngles = [-1.05, -0.66, -0.25, 0.18, 0.62, 1.02];
+    for (let t = 0; t < trunkAngles.length; t++) {
+      const phi0 = trunkAngles[t];
+      const pts = [];
+      for (let j = 0; j < 10; j++) {
+        const theta = 0.06 + j * 0.105;
+        const phi = phi0 + Math.sin(j * 0.78 + t * 1.9) * 0.055 + (j * j) * 0.0018 * (t % 2 ? 1 : -1);
+        pts.push(retinaPoint(theta, phi));
+      }
+      addVessel(pts, t % 2 ? 0.115 : 0.13, t % 2 ? vesselDark : vesselRed);
+
+      for (let b = 0; b < 2; b++) {
+        const start = 4 + b * 2;
+        const branch = [pts[start]];
+        const side = (b === 0 ? -1 : 1) * (t % 2 ? 1 : -1);
+        for (let j = 1; j < 7; j++) {
+          const theta = 0.06 + (start + j) * 0.105;
+          const phi = phi0 + side * (0.065 * j + 0.008 * j * j) + Math.sin((j + t) * 1.2) * 0.035;
+          branch.push(retinaPoint(theta, phi));
+        }
+        addVessel(branch, 0.065, t % 2 ? vesselDark : vesselRed);
+
+        const s2 = 3;
+        const tertiary = [branch[s2]];
+        for (let j = 1; j < 5; j++) {
+          const theta = 0.06 + (start + s2 + j) * 0.105;
+          const phi = phi0 + side * (0.065 * (s2 + j) + 0.008 * (s2 + j) * (s2 + j)) - side * 0.05 * j;
+          tertiary.push(retinaPoint(theta, phi));
+        }
+        addVessel(tertiary, 0.035, t % 2 ? vesselDark : vesselRed);
+      }
+    }
+
+    // Central retinal vessels
+    const art = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.14, 11.8, 16),
+      new THREE.MeshPhysicalMaterial({ color: 0x7e1014, roughness: 0.34, clearcoat: 0.38 }));
+    art.rotation.x = Math.PI / 2;
+    art.position.set(0.28, 0, -17.2);
+    addPart('Blood Vessels', art, false, 'neural');
+
+    const vein = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 11.8, 16),
+      new THREE.MeshPhysicalMaterial({ color: 0x42101b, roughness: 0.35, clearcoat: 0.34 }));
+    vein.rotation.x = Math.PI / 2;
+    vein.position.set(-0.28, 0, -17.2);
+    addPart('Blood Vessels', vein, false, 'neural');
+
+    // L. CUT-PLANE TISSUE RINGS
+    function cutRing(radius, tube, color, opacity = 1) {
+      const tor = new THREE.Mesh(new THREE.TorusGeometry(radius, tube, 14, 180),
+        new THREE.MeshPhysicalMaterial({
+          color,
+          transparent: opacity < 1,
+          opacity,
+          roughness: 0.58,
+          clearcoat: 0.13,
+          side: THREE.DoubleSide,
+          clippingPlanes: [],
+          depthWrite: opacity > 0.4
+        }));
+      tor.rotation.y = Math.PI / 2;
+      tor.position.x = -initialCutConstant + 0.015;
+      eye.add(tor);
+      return tor;
+    }
+
+    const cutSclera = cutRing(11.83, 0.20, 0xeee9de);
+    const cutChoroid = cutRing(11.52, 0.10, 0x4a1711);
+    const cutRetina = cutRing(11.28, 0.075, 0xac5146, 0.95);
+    cutSclera.material.clippingPlanes = [scleraFrontPlane];
+    cutChoroid.material.clippingPlanes = [choroidFrontPlane];
+    cutRetina.material.clippingPlanes = [retinaFrontPlane];
+
+    const moistRing = cutRing(11.12, 0.025, 0xffc1b9, 0.34);
+    moistRing.material.clippingPlanes = [retinaFrontPlane];
+
+    cutRingsRef.current = [cutSclera, cutChoroid, cutRetina, moistRing];
+    parts['Sclera'].push(cutSclera);
+    parts['Choroid'].push(cutChoroid);
+    parts['Retina'].push(cutRetina);
+    parts['Retina'].push(moistRing);
+
+    partsRef.current = parts;
+    scalableShellsRef.current = scalableShells;
+
+    // Build 3D Pins
     build3DPins(pinsGroup, anatomicalStructures, activeStructureId, activeLayerFilter);
 
-    // 6. Interaction Controls (Mouse / Touch Orbit)
-    let isMouseDown = false;
-    let prevX = 0;
-    let prevY = 0;
+    // 8. Raycasting & Interaction
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
 
-    const onMouseDown = (e) => {
-      if (e.button !== 0 && e.button !== 2) return;
-      isMouseDown = true;
-      prevX = e.clientX;
-      prevY = e.clientY;
-    };
-
-    const onMouseMove = (e) => {
+    const onPointerMove = (e) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      const mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      // Raycast pins on hover
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
+      raycaster.setFromCamera(mouse, camera);
       if (pinsGroupRef.current) {
-        const pinMeshes = pinsGroupRef.current.children.map(g => g.children[0]).filter(Boolean);
-        const intersects = raycaster.intersectObjects(pinMeshes);
+        const pinSpheres = pinsGroupRef.current.children.map(g => g.children[0]).filter(Boolean);
+        const intersects = raycaster.intersectObjects(pinSpheres);
         if (intersects.length > 0) {
-          const hitPin = intersects[0].object.userData.structureId;
-          setHoveredPin(hitPin);
+          const structId = intersects[0].object.userData.structureId;
+          setHoveredPin(structId);
           renderer.domElement.style.cursor = 'pointer';
         } else {
           setHoveredPin(null);
-          renderer.domElement.style.cursor = isMouseDown ? 'grabbing' : 'grab';
+          renderer.domElement.style.cursor = 'grab';
         }
       }
-
-      if (!isMouseDown) return;
-      const deltaX = e.clientX - prevX;
-      const deltaY = e.clientY - prevY;
-
-      controlsRef.current.targetRotation.y += deltaX * 0.008;
-      controlsRef.current.targetRotation.x += deltaY * 0.008;
-      controlsRef.current.targetRotation.x = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, controlsRef.current.targetRotation.x));
-
-      prevX = e.clientX;
-      prevY = e.clientY;
-    };
-
-    const onMouseUp = () => {
-      isMouseDown = false;
-      renderer.domElement.style.cursor = 'grab';
     };
 
     const onClick = (e) => {
       const rect = renderer.domElement.getBoundingClientRect();
-      const mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
+      raycaster.setFromCamera(mouse, camera);
       if (pinsGroupRef.current) {
-        const pinMeshes = pinsGroupRef.current.children.map(g => g.children[0]).filter(Boolean);
-        const intersects = raycaster.intersectObjects(pinMeshes);
+        const pinSpheres = pinsGroupRef.current.children.map(g => g.children[0]).filter(Boolean);
+        const intersects = raycaster.intersectObjects(pinSpheres);
         if (intersects.length > 0) {
-          const structureId = intersects[0].object.userData.structureId;
-          if (structureId && onSelectStructure) {
-            onSelectStructure(structureId);
+          const structId = intersects[0].object.userData.structureId;
+          if (structId && onSelectStructure) {
+            onSelectStructure(structId);
           }
         }
       }
     };
 
-    const onWheel = (e) => {
-      e.preventDefault();
-      controlsRef.current.targetZoom += e.deltaY * 0.005;
-      controlsRef.current.targetZoom = Math.max(3.5, Math.min(10.0, controlsRef.current.targetZoom));
-    };
-
     const dom = renderer.domElement;
-    dom.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+    dom.addEventListener('pointermove', onPointerMove);
     dom.addEventListener('click', onClick);
-    dom.addEventListener('wheel', onWheel, { passive: false });
-
-    // Touch handlers for mobile
-    let touchDist = 0;
-    const onTouchStart = (e) => {
-      if (e.touches.length === 1) {
-        isMouseDown = true;
-        prevX = e.touches[0].clientX;
-        prevY = e.touches[0].clientY;
-      } else if (e.touches.length === 2) {
-        touchDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-      }
-    };
-
-    const onTouchMove = (e) => {
-      if (e.touches.length === 1 && isMouseDown) {
-        const deltaX = e.touches[0].clientX - prevX;
-        const deltaY = e.touches[0].clientY - prevY;
-        controlsRef.current.targetRotation.y += deltaX * 0.008;
-        controlsRef.current.targetRotation.x += deltaY * 0.008;
-        prevX = e.touches[0].clientX;
-        prevY = e.touches[0].clientY;
-      } else if (e.touches.length === 2) {
-        const newDist = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY
-        );
-        const diff = (touchDist - newDist) * 0.01;
-        controlsRef.current.targetZoom = Math.max(3.5, Math.min(10.0, controlsRef.current.targetZoom + diff));
-        touchDist = newDist;
-      }
-    };
-
-    const onTouchEnd = () => {
-      isMouseDown = false;
-    };
-
-    dom.addEventListener('touchstart', onTouchStart, { passive: true });
-    dom.addEventListener('touchmove', onTouchMove, { passive: true });
-    dom.addEventListener('touchend', onTouchEnd, { passive: true });
 
     // Resize Observer
     const resizeObserver = new ResizeObserver((entries) => {
       for (let entry of entries) {
         const w = entry.contentRect.width;
-        const h = entry.contentRect.height || 580;
+        const h = entry.contentRect.height || 620;
         if (w > 0 && h > 0) {
           camera.aspect = w / h;
           camera.updateProjectionMatrix();
@@ -246,32 +518,25 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
     });
     resizeObserver.observe(container);
 
-    // 7. Animation Loop
-    let clock = new THREE.Clock();
-
+    // 9. Animation Loop
+    const clock = new THREE.Clock();
     const animate = () => {
       const elapsedTime = clock.getElapsedTime();
 
-      // Smooth camera interpolation
-      controlsRef.current.rotation.x += (controlsRef.current.targetRotation.x - controlsRef.current.rotation.x) * 0.1;
-      controlsRef.current.rotation.y += (controlsRef.current.targetRotation.y - controlsRef.current.rotation.y) * 0.1;
-      controlsRef.current.zoom += (controlsRef.current.targetZoom - controlsRef.current.zoom) * 0.1;
-
-      eyeGroup.rotation.x = controlsRef.current.rotation.x;
-      eyeGroup.rotation.y = controlsRef.current.rotation.y;
-      camera.position.z = controlsRef.current.zoom;
+      rimLight.intensity = 2.15 + Math.sin(elapsedTime * 0.45) * 0.10;
 
       // Animate pulsing 3D beacon pins
       if (pinsGroupRef.current) {
         pinsGroupRef.current.children.forEach((pinGroup) => {
           const outerRing = pinGroup.children[1];
           if (outerRing) {
-            const scale = 1.0 + 0.3 * Math.sin(elapsedTime * 4.2 + pinGroup.position.x);
+            const scale = 1.0 + 0.25 * Math.sin(elapsedTime * 4.0 + pinGroup.position.z);
             outerRing.scale.set(scale, scale, scale);
           }
         });
       }
 
+      controls.update();
       renderer.render(scene, camera);
       requestRef.current = requestAnimationFrame(animate);
     };
@@ -280,64 +545,188 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
 
     return () => {
       if (requestRef.current) cancelAnimationFrame(requestRef.current);
-      dom.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
+      dom.removeEventListener('pointermove', onPointerMove);
       dom.removeEventListener('click', onClick);
-      dom.removeEventListener('wheel', onWheel);
-      dom.removeEventListener('touchstart', onTouchStart);
-      dom.removeEventListener('touchmove', onTouchMove);
-      dom.removeEventListener('touchend', onTouchEnd);
       resizeObserver.disconnect();
       renderer.dispose();
     };
-  }, [viewMode, activeLayerFilter]);
+  }, [viewMode]);
 
-  // Re-build pins when activeStructureId changes
+  // Update Cut Plane constant on slider or viewMode change
   useEffect(() => {
+    if (cutPlaneRef.current) {
+      const isCutaway = viewMode === 'crossSection';
+      const c = isCutaway ? cutValue : 25.0;
+      cutPlaneRef.current.constant = c;
+
+      const posX = -c + 0.015;
+      cutRingsRef.current.forEach(ring => {
+        if (ring) {
+          ring.position.x = posX;
+          ring.visible = isCutaway;
+        }
+      });
+    }
+  }, [cutValue, viewMode]);
+
+  // Update Explode separation slider
+  useEffect(() => {
+    const k = explodeValue;
+    const shellScale = { 'Sclera': 1 + 0.032 * k, 'Choroid': 1 + 0.016 * k, 'Retina': 1 };
+    scalableShellsRef.current.forEach(s => {
+      const f = shellScale[s.name] || 1;
+      s.mesh.scale.copy(s.base).multiplyScalar(f);
+    });
+    if (cutRingsRef.current[0]) cutRingsRef.current[0].scale.setScalar(1 + 0.032 * k);
+    if (cutRingsRef.current[1]) cutRingsRef.current[1].scale.setScalar(1 + 0.016 * k);
+  }, [explodeValue]);
+
+  // Update Auto-rotate
+  useEffect(() => {
+    if (controlsRef.current) {
+      controlsRef.current.autoRotate = autoRotate;
+    }
+  }, [autoRotate]);
+
+  // Filter layers
+  useEffect(() => {
+    if (eyeGroupRef.current) {
+      eyeGroupRef.current.children.forEach(child => {
+        if (child === pinsGroupRef.current || child.type === 'Line') return;
+        const cat = child.userData?.category;
+        if (!cat || activeLayerFilter === 'all') {
+          child.visible = true;
+        } else {
+          child.visible = cat === activeLayerFilter;
+        }
+      });
+    }
     if (pinsGroupRef.current) {
       build3DPins(pinsGroupRef.current, anatomicalStructures, activeStructureId, activeLayerFilter);
     }
-  }, [activeStructureId, activeLayerFilter]);
+  }, [activeLayerFilter, activeStructureId]);
 
-  // Camera focus animation
+  // Camera smooth focus when activeStructureId changes
   useEffect(() => {
-    if (!activeStructureId) return;
+    if (!activeStructureId || !controlsRef.current || !cameraRef.current) return;
     const structure = anatomicalStructures.find(s => s.id === activeStructureId);
-    if (structure && structure.pinPosition) {
+    if (structure && structure.cameraTarget && structure.pinPosition) {
+      const [tx, ty, tz] = structure.cameraTarget;
       const [px, py, pz] = structure.pinPosition;
-      const targetY = -Math.atan2(px, pz);
-      const targetX = Math.atan2(py, Math.sqrt(px * px + pz * pz));
-      controlsRef.current.targetRotation.y = targetY;
-      controlsRef.current.targetRotation.x = targetX * 0.72;
-      controlsRef.current.targetZoom = 5.2;
+
+      const controls = controlsRef.current;
+      const camera = cameraRef.current;
+
+      controls.target.set(tx, ty, tz);
+      const dist = 24.0;
+      const norm = Math.hypot(px - tx, py - ty, pz - tz) || 1;
+      const dirX = (px - tx) / norm;
+      const dirY = (py - ty) / norm;
+      const dirZ = (pz - tz) / norm;
+
+      camera.position.set(
+        tx + dirX * dist + 10,
+        ty + dirY * dist + 6,
+        tz + dirZ * dist + 12
+      );
+      controls.update();
     }
   }, [activeStructureId]);
 
+  const handleResetCamera = () => {
+    if (controlsRef.current && cameraRef.current) {
+      cameraRef.current.position.set(31, 16, 27);
+      controlsRef.current.target.set(0, 0, 0);
+      controlsRef.current.update();
+    }
+  };
+
+  const handleInspectRetina = () => {
+    if (controlsRef.current && cameraRef.current) {
+      cameraRef.current.position.set(18, 3, -2);
+      controlsRef.current.target.set(0, 0, -3.5);
+      controlsRef.current.update();
+    }
+  };
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '580px' }}>
-      <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: '580px', borderRadius: '12px', overflow: 'hidden' }} />
-      
-      {/* 3D Viewport Controls HUD */}
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: '620px' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', minHeight: '620px', borderRadius: '12px', overflow: 'hidden' }} />
+
+      {/* Floating Anatomical Controls Panel */}
       <div style={{
         position: 'absolute',
-        bottom: '1rem',
+        top: '1rem',
         left: '1rem',
-        display: 'flex',
-        gap: '0.6rem',
-        background: 'rgba(10, 10, 12, 0.85)',
-        backdropFilter: 'blur(12px)',
-        padding: '0.45rem 0.9rem',
-        borderRadius: '8px',
-        border: '1px solid var(--border-glass)',
-        fontSize: '0.82rem',
-        color: 'var(--text-secondary)'
+        width: 'min(290px, calc(100% - 2rem))',
+        background: 'rgba(15, 18, 22, 0.82)',
+        backdropFilter: 'blur(14px)',
+        border: '1px solid rgba(255, 255, 255, 0.12)',
+        borderRadius: '12px',
+        padding: '1rem',
+        color: '#eef3f5',
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.45)',
+        zIndex: 20
       }}>
-        <span>🖱️ 360° Real 3D Model</span>
-        <span>•</span>
-        <span>🔍 Scroll to Zoom</span>
-        <span>•</span>
-        <span>🎯 Click 3D Pins</span>
+        <div style={{ fontSize: '0.88rem', fontWeight: '700', marginBottom: '0.2rem', color: '#fff' }}>
+          Anatomical Controls
+        </div>
+        <div style={{ fontSize: '0.74rem', color: 'rgba(235, 244, 247, 0.65)', marginBottom: '0.75rem' }}>
+          Drag to orbit • Scroll to zoom • Click pins
+        </div>
+
+        {/* Cutaway Opening Slider */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: '0.5rem' }}>
+          <span>Cutaway opening:</span>
+          <input
+            type="range"
+            min="-2.5"
+            max="2.5"
+            step="0.05"
+            value={cutValue}
+            onChange={(e) => setCutValue(parseFloat(e.target.value))}
+            style={{ width: '110px', accentColor: 'var(--accent-gold)' }}
+          />
+        </div>
+
+        {/* Layer Separation Slider */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem', marginBottom: '0.85rem' }}>
+          <span>Layer separation:</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={explodeValue}
+            onChange={(e) => setExplodeValue(parseFloat(e.target.value))}
+            style={{ width: '110px', accentColor: 'var(--accent-gold)' }}
+          />
+        </div>
+
+        {/* Action Buttons */}
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <button
+            onClick={handleResetCamera}
+            style={actionBtnStyle}
+            title="Reset to default 3D camera angle"
+          >
+            ↺ Reset
+          </button>
+          <button
+            onClick={handleInspectRetina}
+            style={actionBtnStyle}
+            title="Inspect inside the fundus & retina"
+          >
+            👁️ Inspect Retina
+          </button>
+          <button
+            onClick={() => setAutoRotate(!autoRotate)}
+            style={{ ...actionBtnStyle, background: autoRotate ? 'rgba(216, 184, 99, 0.3)' : 'rgba(255, 255, 255, 0.08)' }}
+            title="Toggle 360° auto rotation"
+          >
+            {autoRotate ? '⏸ Stop' : '▶ Orbit'}
+          </button>
+        </div>
       </div>
 
       {/* Hovered Pin Tooltip */}
@@ -345,14 +734,14 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
         <div style={{
           position: 'absolute',
           top: '1rem',
-          left: '1rem',
+          right: '1rem',
           background: 'rgba(20, 21, 26, 0.95)',
           backdropFilter: 'blur(12px)',
           border: '1px solid var(--accent-gold)',
-          padding: '0.5rem 1rem',
+          padding: '0.6rem 1.1rem',
           borderRadius: '8px',
           color: '#fff',
-          fontSize: '0.9rem',
+          fontSize: '0.88rem',
           boxShadow: '0 8px 24px rgba(0,0,0,0.7)',
           pointerEvents: 'none',
           zIndex: 30
@@ -366,225 +755,27 @@ export default function Eye3DCanvas({ activeStructureId, onSelectStructure, view
         </div>
       )}
 
-      {/* Camera Reset */}
-      <button
-        onClick={() => {
-          controlsRef.current.targetRotation = { x: 0.15, y: -0.92 };
-          controlsRef.current.targetZoom = 6.0;
-        }}
-        style={{
-          position: 'absolute',
-          top: '1rem',
-          right: '1rem',
-          background: 'rgba(20, 21, 26, 0.85)',
-          border: '1px solid var(--border-glass)',
-          color: 'var(--text-primary)',
-          padding: '0.45rem 0.9rem',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          fontSize: '0.82rem',
-          backdropFilter: 'blur(8px)',
-          transition: 'all 0.2s',
-          zIndex: 30
-        }}
-        title="Reset 3D Camera View"
-      >
-        ↺ Reset 3D View
-      </button>
+      {/* Bottom Hint */}
+      <div style={{
+        position: 'absolute',
+        bottom: '1rem',
+        right: '1rem',
+        fontSize: '0.75rem',
+        color: 'rgba(235, 244, 247, 0.55)',
+        background: 'rgba(10, 12, 14, 0.55)',
+        padding: '0.4rem 0.8rem',
+        borderRadius: '6px',
+        backdropFilter: 'blur(8px)',
+        border: '1px solid rgba(255, 255, 255, 0.08)'
+      }}>
+        Clinical Ophthalmic WebGL Anatomical Model
+      </div>
     </div>
   );
 }
 
 // -------------------------------------------------------------
-// Photorealistic 3D Anatomical Anatomy Construction
-// -------------------------------------------------------------
-function buildPhotographicEyeAnatomy(group, viewMode, layerFilter, textures) {
-  while (group.children.length > 1) {
-    group.remove(group.children[group.children.length - 1]);
-  }
-
-  const isCutaway = viewMode === 'crossSection';
-  const phiLength = isCutaway ? Math.PI * 1.34 : Math.PI * 2;
-
-  const showFibrosa = layerFilter === 'all' || layerFilter === 'fibrosa';
-  const showVasculosa = layerFilter === 'all' || layerFilter === 'vasculosa';
-  const showNervosa = layerFilter === 'all' || layerFilter === 'nervosa';
-  const showOptical = layerFilter === 'all' || layerFilter === 'optical';
-  const showNeural = layerFilter === 'all' || layerFilter === 'neural';
-
-  // 1. SCLERA (Outer White Shell with Photographic Episcleral Vessels & Gloss - R=2.0)
-  if (showFibrosa) {
-    const scleraGeo = new THREE.SphereGeometry(2.0, 64, 64, 0, phiLength, 0.42, Math.PI - 0.42);
-    const scleraMat = new THREE.MeshStandardMaterial({
-      map: textures.scleraTexture,
-      roughness: 0.2,
-      metalness: 0.05,
-      side: isCutaway ? THREE.DoubleSide : THREE.FrontSide
-    });
-    const scleraMesh = new THREE.Mesh(scleraGeo, scleraMat);
-    scleraMesh.rotation.y = Math.PI / 2;
-    group.add(scleraMesh);
-
-    // Extraocular Rectus Muscle Bands (Photorealistic Muscle Tendons)
-    const muscleGeo = new THREE.BoxGeometry(0.38, 0.09, 1.85);
-    const muscleMat = new THREE.MeshStandardMaterial({ color: 0x881337, roughness: 0.6 });
-    
-    const supMuscle = new THREE.Mesh(muscleGeo, muscleMat);
-    supMuscle.position.set(0, 2.03, -0.45);
-    supMuscle.rotation.x = -0.22;
-    group.add(supMuscle);
-
-    const infMuscle = new THREE.Mesh(muscleGeo, muscleMat);
-    infMuscle.position.set(0, -2.03, -0.45);
-    infMuscle.rotation.x = 0.22;
-    group.add(infMuscle);
-
-    // 2. CORNEA (Crystal Refractive Anterior Glass Dome - R=1.24, ior=1.376)
-    const corneaGeo = new THREE.SphereGeometry(1.24, 56, 56, 0, Math.PI * 2, 0, Math.PI / 2.05);
-    const corneaMat = new THREE.MeshPhysicalMaterial({
-      color: 0xdbeafe,
-      transparent: true,
-      opacity: 0.42,
-      roughness: 0.01,
-      metalness: 0.05,
-      transmission: 0.98,
-      ior: 1.376,
-      clearcoat: 1.0,
-      clearcoatRoughness: 0.05,
-      side: THREE.DoubleSide
-    });
-    const corneaMesh = new THREE.Mesh(corneaGeo, corneaMat);
-    corneaMesh.position.set(0, 0, 1.44);
-    corneaMesh.scale.set(1.0, 1.0, 0.74);
-    group.add(corneaMesh);
-  }
-
-  // 3. CHOROID (Middle Vascular Layer - R=1.92, deep vascular burgundy)
-  if (showVasculosa) {
-    const choroidGeo = new THREE.SphereGeometry(1.92, 56, 56, 0, phiLength, 0.46, Math.PI - 0.46);
-    const choroidMat = new THREE.MeshStandardMaterial({
-      color: 0x701a1e,
-      roughness: 0.55,
-      metalness: 0.1,
-      side: THREE.DoubleSide
-    });
-    const choroidMesh = new THREE.Mesh(choroidGeo, choroidMat);
-    choroidMesh.rotation.y = Math.PI / 2;
-    group.add(choroidMesh);
-
-    // 4. IRIS & PUPIL WITH PHOTOGRAPHIC IRIS TEXTURE
-    const irisGeo = new THREE.RingGeometry(0.44, 1.22, 56);
-    const irisMat = new THREE.MeshStandardMaterial({
-      map: textures.irisTexture,
-      roughness: 0.3,
-      side: THREE.DoubleSide
-    });
-    const irisMesh = new THREE.Mesh(irisGeo, irisMat);
-    irisMesh.position.set(0, 0, 1.46);
-    group.add(irisMesh);
-
-    // Ciliary Body Crests (Corpus Ciliare)
-    const ciliaryGeo = new THREE.TorusGeometry(1.26, 0.12, 16, 56);
-    const ciliaryMat = new THREE.MeshStandardMaterial({ color: 0x78350f, roughness: 0.5 });
-    const ciliaryMesh = new THREE.Mesh(ciliaryGeo, ciliaryMat);
-    ciliaryMesh.position.set(0, 0, 1.32);
-    group.add(ciliaryMesh);
-  }
-
-  // 5. RETINA (Inner Neurosensory Layer with Photographic Fundus Texture & Vessels - R=1.85)
-  if (showNervosa) {
-    const retinaGeo = new THREE.SphereGeometry(1.85, 64, 64, 0, phiLength, 0.58, Math.PI - 0.58);
-    const retinaMat = new THREE.MeshStandardMaterial({
-      map: textures.retinaTexture,
-      roughness: 0.35,
-      metalness: 0.05,
-      side: THREE.DoubleSide
-    });
-    const retinaMesh = new THREE.Mesh(retinaGeo, retinaMat);
-    retinaMesh.rotation.y = Math.PI / 2;
-    group.add(retinaMesh);
-  }
-
-  // 6. CRYSTALLINE LENS & SUSPENSORY ZONULES OF ZINN
-  if (showOptical) {
-    // Biconvex Crystalline Lens
-    const lensGeo = new THREE.SphereGeometry(0.92, 40, 40);
-    const lensMat = new THREE.MeshPhysicalMaterial({
-      color: 0xf0f9ff,
-      transparent: true,
-      opacity: 0.9,
-      roughness: 0.03,
-      transmission: 0.96,
-      ior: 1.406,
-      clearcoat: 0.8
-    });
-    const lensMesh = new THREE.Mesh(lensGeo, lensMat);
-    lensMesh.position.set(0, 0, 1.24);
-    lensMesh.scale.set(0.96, 0.96, 0.48);
-    group.add(lensMesh);
-
-    // Suspensory Zonules of Zinn (Radially radiating ring)
-    const zonuleGeo = new THREE.RingGeometry(0.9, 1.25, 56, 8);
-    const zonuleMat = new THREE.MeshBasicMaterial({
-      color: 0xfef9c3,
-      wireframe: true,
-      transparent: true,
-      opacity: 0.45
-    });
-    const zonuleMesh = new THREE.Mesh(zonuleGeo, zonuleMat);
-    zonuleMesh.position.set(0, 0, 1.24);
-    group.add(zonuleMesh);
-
-    // Vitreous Body Cavity (Posterior warm glow)
-    if (isCutaway || layerFilter === 'optical') {
-      const vitGeo = new THREE.SphereGeometry(1.8, 40, 40, 0, phiLength);
-      const vitMat = new THREE.MeshPhysicalMaterial({
-        color: 0xfbbf24,
-        transparent: true,
-        opacity: 0.18,
-        roughness: 0.1,
-        transmission: 0.96
-      });
-      const vitMesh = new THREE.Mesh(vitGeo, vitMat);
-      vitMesh.rotation.y = Math.PI / 2;
-      group.add(vitMesh);
-    }
-  }
-
-  // 7. OPTIC NERVE (CN II) & CENTRAL RETINAL VESSELS
-  if (showNeural || showFibrosa) {
-    const nerveGeo = new THREE.CylinderGeometry(0.42, 0.46, 2.0, 32);
-    const nerveMat = new THREE.MeshStandardMaterial({
-      color: 0xfef08a,
-      roughness: 0.35,
-      metalness: 0.08
-    });
-    const nerveMesh = new THREE.Mesh(nerveGeo, nerveMat);
-    nerveMesh.position.set(0.88, 0.22, -2.7);
-    nerveMesh.rotation.x = Math.PI / 2 + 0.15;
-    nerveMesh.rotation.z = -0.15;
-    group.add(nerveMesh);
-
-    // Central Retinal Artery (Red)
-    const arteryGeo = new THREE.CylinderGeometry(0.045, 0.045, 2.0, 16);
-    const arteryMat = new THREE.MeshBasicMaterial({ color: 0xdc2626 });
-    const arteryMesh = new THREE.Mesh(arteryGeo, arteryMat);
-    arteryMesh.position.set(0.85, 0.26, -2.7);
-    arteryMesh.rotation.x = Math.PI / 2 + 0.15;
-    group.add(arteryMesh);
-
-    // Central Retinal Vein (Blue)
-    const veinGeo = new THREE.CylinderGeometry(0.045, 0.045, 2.0, 16);
-    const veinMat = new THREE.MeshBasicMaterial({ color: 0x2563eb });
-    const veinMesh = new THREE.Mesh(veinGeo, veinMat);
-    veinMesh.position.set(0.91, 0.18, -2.7);
-    veinMesh.rotation.x = Math.PI / 2 + 0.15;
-    group.add(veinMesh);
-  }
-}
-
-// -------------------------------------------------------------
-// Interactive 3D Pins Construction
+// 3D Beacon Hotspot Pins Construction
 // -------------------------------------------------------------
 function build3DPins(pinsGroup, structures, activeId, layerFilter) {
   while (pinsGroup.children.length > 0) {
@@ -600,7 +791,7 @@ function build3DPins(pinsGroup, structures, activeId, layerFilter) {
     const pinGroup = new THREE.Group();
     pinGroup.position.set(...structure.pinPosition);
 
-    const sphereGeo = new THREE.SphereGeometry(isSelected ? 0.13 : 0.09, 20, 20);
+    const sphereGeo = new THREE.SphereGeometry(isSelected ? 0.65 : 0.45, 20, 20);
     const sphereMat = new THREE.MeshBasicMaterial({
       color: isSelected ? 0xd4af37 : 0xffffff
     });
@@ -608,7 +799,7 @@ function build3DPins(pinsGroup, structures, activeId, layerFilter) {
     sphereMesh.userData = { structureId: structure.id };
     pinGroup.add(sphereMesh);
 
-    const ringGeo = new THREE.RingGeometry(0.12, 0.17, 32);
+    const ringGeo = new THREE.RingGeometry(0.65, 0.95, 32);
     const ringMat = new THREE.MeshBasicMaterial({
       color: isSelected ? 0xd4af37 : (structure.color || 0x38bdf8),
       side: THREE.DoubleSide,
@@ -622,3 +813,15 @@ function build3DPins(pinsGroup, structures, activeId, layerFilter) {
     pinsGroup.add(pinGroup);
   });
 }
+
+const actionBtnStyle = {
+  appearance: 'none',
+  border: '1px solid rgba(255, 255, 255, 0.16)',
+  color: '#eff5f7',
+  background: 'rgba(255, 255, 255, 0.08)',
+  borderRadius: '6px',
+  padding: '0.35rem 0.65rem',
+  fontSize: '0.74rem',
+  cursor: 'pointer',
+  transition: 'all 0.2s ease'
+};
